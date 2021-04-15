@@ -243,6 +243,9 @@ namespace mud {
         int aes;
     };
 
+    int crypto_key_encrypt(const crypto_key* k, const unsigned char* src, unsigned char* dst, size_t size);
+    int crypto_key_decrypt(const crypto_key* k, const unsigned char* src, unsigned char* dst, size_t size);
+
     struct crypto_keys {
         uint64_t time;
         unsigned char secret[crypto_scalarmult_SCALARBYTES];
@@ -253,8 +256,11 @@ namespace mud {
         int aes;
     };
 
-    int crypto_keys_init(crypto_keys* keys, uint64_t now, uint64_t timeout);
-    int crypto_keys_exchange(crypto_keys* keys, unsigned char* remote_key, int aes);
+    int crypto_keys_init(crypto_keys*, uint64_t now, uint64_t timeout);
+    int crypto_keys_exchange(crypto_keys*, unsigned char* remote_key, int aes);
+
+    size_t crypto_keys_encrypt(crypto_keys*, uint64_t now, unsigned char* dst, size_t dst_size, const unsigned char* src, size_t src_size);
+    size_t crypto_keys_decrypt(crypto_keys*, unsigned char* dst, size_t dst_size, const unsigned char* src, size_t src_size);
 
     struct mud {
         int fd;

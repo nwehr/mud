@@ -1,6 +1,7 @@
 #include "../mud.h"
 
 int mud_timeout(uint64_t now, uint64_t last, uint64_t timeout);
+void mud_store(unsigned char* dst, uint64_t src, size_t size);
 
 static void hash_key(unsigned char* dst, unsigned char* key, unsigned char* secret, unsigned char* pk0, unsigned char* pk1) {
     crypto_generichash_state state;
@@ -51,4 +52,44 @@ int mud::crypto_keys_exchange(crypto_keys* keys, unsigned char* remote_key, int 
     keys->next.aes = keys->aes && aes;
 
     return 0;
+}
+
+size_t mud::crypto_keys_encrypt(crypto_keys* keys, uint64_t now, unsigned char* dst, size_t dst_size, const unsigned char* src, size_t src_size) {
+    const size_t size = src_size + MUD_PKT_MIN_SIZE;
+
+    if (size > dst_size){
+        return 0;
+    }
+
+    mud_store(dst, now, MUD_TIME_SIZE);
+
+    if (keys->use_next) {
+        crypto_key_encrypt(&keys->next, src, dst, src_size);
+    } else {
+        crypto_key_encrypt(&keys->current, src, dst, src_size);
+    }
+
+    return size;
+}
+
+size_t mud::crypto_keys_decrypt(crypto_keys* keys, unsigned char* dst, size_t dst_size, const unsigned char* src, size_t src_size) {
+    const size_t size = src_size - MUD_PKT_MIN_SIZE;
+
+    if (size > dst_size) {
+        return 0; 
+    }
+
+    if (crypto_key_decrypt(&keys->current, src, dst, src_size)) {
+        if (!crypto_key_decrypt(&keys->next, src, dst, src_size)) {
+            keys->last = keys->current;
+            keys->current = keys->next;
+            keys->use_next = 0;
+        } else {
+            if (crypto_key_decrypt(&keys->last, src, dst, src_size) && crypto_key_decrypt(&keys->priv, src, dst, src_size)) {
+                return 0;
+            }
+        }
+    }
+    
+    return size;
 }
