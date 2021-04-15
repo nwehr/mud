@@ -229,13 +229,7 @@ namespace mud {
         unsigned char loss_limit;
         addr addr;
     };
-
-    struct crypto_opt {
-        unsigned char* dst;
-        const unsigned char* src;
-        size_t size;
-    };
-
+    
     struct crypto_key {
         struct {
             unsigned char key[MUD_KEY_SIZE];
