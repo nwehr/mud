@@ -319,19 +319,6 @@ static uint64_t mud_path_track(mud::mud* m, mud::path* path, uint64_t now) {
     return now;
 }
 
-static void mud_update_window(mud::mud* m, const uint64_t now) {
-    uint64_t elapsed = MUD_TIME_MASK(now - m->window_time);
-
-    if (elapsed > MUD_ONE_MSEC) {
-        m->window += m->rate * elapsed / MUD_ONE_SEC;
-        m->window_time = now;
-    }
-    uint64_t window_max = m->rate * 100 * MUD_ONE_MSEC / MUD_ONE_SEC;
-
-    if (m->window > window_max)
-        m->window = window_max;
-}
-
 int mud::mud_update(mud* m) {
     unsigned count = 0;
     unsigned pref = 255;
@@ -379,7 +366,16 @@ int mud::mud_update(mud* m) {
     m->rate = rate;
     m->mtu = mtu;
 
-    mud_update_window(m, now);
+    uint64_t elapsed = MUD_TIME_MASK(now - m->window_time);
+
+    if (elapsed > MUD_ONE_MSEC) {
+        m->window += m->rate * elapsed / MUD_ONE_SEC;
+        m->window_time = now;
+    }
+    uint64_t window_max = m->rate * 100 * MUD_ONE_MSEC / MUD_ONE_SEC;
+
+    if (m->window > window_max)
+        m->window = window_max;
 
     if (!count)
         return -1;
