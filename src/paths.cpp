@@ -60,3 +60,55 @@ mud::path* mud::paths_get_path(paths* p, path_conf c, uint64_t now) {
 
     return path;
 }
+
+int mud::paths_set_path(paths* p, path_conf c, uint64_t now) {
+    if (c.state < EMPTY || c.state >= LAST) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    ::mud::path* path = paths_get_path(p, c, now);
+    if (!path)
+        return -1;
+
+    path_conf conf = path->conf;
+
+    if (c.state)       conf.state       = c.state;
+    if (c.pref)        conf.pref        = c.pref >> 1;
+    if (c.beat)        conf.beat        = c.beat * MUD_ONE_MSEC;
+    if (c.fixed_rate)  conf.fixed_rate  = c.fixed_rate >> 1;
+    if (c.loss_limit)  conf.loss_limit  = c.loss_limit;
+    if (c.tx_max_rate) conf.tx_max_rate = path->tx.rate = c.tx_max_rate;
+    if (c.rx_max_rate) conf.rx_max_rate = path->rx.rate = c.rx_max_rate;
+
+    path->conf = conf;
+    return 0;
+}
+
+
+// int paths_num_paths(mud::paths* p, mud::path_conf c) {
+//     if (!p) {
+//         errno = EINVAL;
+//         return -1;
+//     }
+//     unsigned count = 0;
+
+//     for (unsigned i = 0; i < p->count; i++) {
+//         ::mud::path* path = &p->path[i];
+
+//         if (sockaddress_cmp_addr(&c.local, &path->conf.local)){
+//             continue;
+//         }
+
+//         if (sockaddress_cmp_addr(&c.remote, &path->conf.remote) || sockaddress_cmp_port(&c.remote, &path->conf.remote)) {
+//             continue;
+//         }
+
+//         if (path->conf.state != mud::EMPTY){
+//             p->path[count++] = *path;
+//         }
+//     }
+
+//     p->count = count;
+//     return 0;
+// }

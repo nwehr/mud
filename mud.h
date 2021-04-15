@@ -77,8 +77,7 @@
 #define MUD_MTU_MIN ( 576U + MUD_PKT_MIN_SIZE)
 #define MUD_MTU_MAX (1450U + MUD_PKT_MIN_SIZE)
 
-#define MUD_CTRL_SIZE (CMSG_SPACE(MUD_PKTINFO_SIZE) + \
-                       CMSG_SPACE(sizeof(in6_pktinfo)))
+#define MUD_CTRL_SIZE (CMSG_SPACE(MUD_PKTINFO_SIZE) + CMSG_SPACE(sizeof(in6_pktinfo)))
 
 #define MUD_STORE_MSG(D,S) mud_store((D),(S),sizeof(D))
 #define MUD_LOAD_MSG(S)    mud_load((S),sizeof(S))
@@ -141,8 +140,6 @@ namespace mud {
         unsigned char port[2];
     };
 
-    
-
     int addr_is_v6(addr*);
     int addr_from_sockaddress(addr*, sockaddress*);
 
@@ -159,7 +156,7 @@ namespace mud {
     };
 
     struct path {
-        struct path_conf conf;
+        path_conf conf;
         path_status status;
         sockaddress remote;
         stat rtt;
@@ -193,6 +190,7 @@ namespace mud {
     };
 
     void path_update_mtu(path*, size_t);
+    void path_update_rl(path*, uint64_t now, uint64_t tx_dt, uint64_t tx_bytes, uint64_t tx_pkt, uint64_t rx_dt, uint64_t rx_bytes, uint64_t rx_pkt);
 
     struct paths {
         path* path;
@@ -200,6 +198,7 @@ namespace mud {
     };
 
     path* paths_get_path(paths*, path_conf, uint64_t now);
+    int paths_set_path(paths*, path_conf, uint64_t now);
 
     struct error {
         sockaddress addr;
@@ -234,7 +233,7 @@ namespace mud {
         unsigned char loss;
         unsigned char fixed_rate;
         unsigned char loss_limit;
-        struct addr addr;
+        addr addr;
     };
 
     struct crypto_key {
@@ -277,8 +276,7 @@ namespace mud {
 
     uint64_t mud_now(mud*);
 
-    int mud_set(mud*, conf*);
-    int mud_set_path(mud*, path_conf*);
+    int mud_set_conf(mud*, conf*);
 
     int mud_update(mud*);
     int mud_send_wait(mud*);
@@ -289,7 +287,4 @@ namespace mud {
     int mud_get_errors(mud*, errors*);
     int mud_get_fd(mud*);
     size_t mud_get_mtu(mud*);
-    int mud_get_paths(mud*, paths*, sockaddress *, sockaddress *);
-
-
 }
