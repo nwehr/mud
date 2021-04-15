@@ -147,7 +147,7 @@ namespace mud {
     int addr_from_sockaddress(addr*, sockaddress*);
 
     struct path_conf {
-        enum state state;
+        state state;
         sockaddress local;
         sockaddress remote;
         uint64_t tx_max_rate;
@@ -160,7 +160,7 @@ namespace mud {
 
     struct path {
         struct path_conf conf;
-        enum path_status status;
+        path_status status;
         sockaddress remote;
         stat rtt;
         struct {
@@ -194,6 +194,13 @@ namespace mud {
 
     void path_update_mtu(path*, size_t);
 
+    struct paths {
+        path* path;
+        unsigned count;
+    };
+
+    path* paths_get_path(paths*, path_conf, uint64_t now);
+
     struct error {
         sockaddress addr;
         uint64_t time;
@@ -201,14 +208,9 @@ namespace mud {
     };
 
     struct errors {
-        struct error decrypt;
-        struct error clocksync;
-        struct error keyx;
-    };
-
-    struct paths {
-        struct path path[MUD_PATH_MAX];
-        unsigned count;
+        error decrypt;
+        error clocksync;
+        error keyx;
     };
 
     struct crypto_opt {
@@ -255,9 +257,8 @@ namespace mud {
     struct mud {
         int fd;
         conf conf;
-        path* paths;
+        paths paths;
         unsigned pref;
-        unsigned capacity;
         keyx_t keyx;
         uint64_t last_recv_time;
         size_t mtu;

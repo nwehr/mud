@@ -11,6 +11,7 @@ server:
 		src/sockaddress.cpp \
 		src/stat.cpp \
 		src/path.cpp \
+		src/paths.cpp \
 		test/server.cpp \
 		$(LDLIBS)
 
@@ -23,6 +24,7 @@ client:
 		src/sockaddress.cpp \
 		src/stat.cpp \
 		src/path.cpp \
+		src/paths.cpp \
 		test/client.cpp \
 		$(LDLIBS)
 

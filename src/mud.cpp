@@ -137,8 +137,8 @@ static inline int mud_timeout(uint64_t now, uint64_t last, uint64_t timeout) {
 static mud::path* mud_select_path(mud::mud* m, uint16_t cursor) {
     uint64_t k = (cursor * m->rate) >> 16;
 
-    for (unsigned i = 0; i < m->capacity; i++) {
-        mud::path* path = &m->paths[i];
+    for (unsigned i = 0; i < m->paths.count; i++) {
+        mud::path* path = &m->paths.path[i];
 
         if (path->status != mud::RUNNING)
             continue;
@@ -149,65 +149,6 @@ static mud::path* mud_select_path(mud::mud* m, uint16_t cursor) {
         k -= path->tx.rate;
     }
     return NULL;
-}
-
-static mud::path* mud_get_path(mud::mud* m, mud::sockaddress* local,mud::sockaddress* remote, mud::state state) {
-    if (local->sa.sa_family != remote->sa.sa_family) {
-        errno = EINVAL;
-        return NULL;
-    }
-    for (unsigned i = 0; i < m->capacity; i++) {
-        mud::path* path = &m->paths[i];
-
-        if (path->conf.state == mud::EMPTY)
-            continue;
-
-        if (sockaddress_cmp_addr(local, &path->conf.local)   ||
-            sockaddress_cmp_addr(remote, &path->conf.remote) ||
-            sockaddress_cmp_port(remote, &path->conf.remote))
-            continue;
-
-        return path;
-    }
-    if (state <= mud::DOWN) {
-        errno = 0;
-        return NULL;
-    }
-    mud::path* path = NULL;
-
-    for (unsigned i = 0; i < m->capacity; i++) {
-        if (m->paths[i].conf.state == mud::EMPTY) {
-            path = &m->paths[i];
-            break;
-        }
-    }
-    if (!path) {
-        if (m->capacity == MUD_PATH_MAX) {
-            errno = ENOMEM;
-            return NULL;
-        }
-        mud::path* paths = (mud::path*)realloc(m->paths, (m->capacity + 1) * sizeof(mud::path));
-
-        if (!paths)
-            return NULL;
-
-        path = &paths[m->capacity];
-
-        m->capacity++;
-        m->paths = paths;
-    }
-    memset(path, 0, sizeof(mud::path));
-
-    path->conf.local      = *local;
-    path->conf.remote     = *remote;
-    path->conf.state      = state;
-    path->conf.beat       = 100 * MUD_ONE_MSEC;
-    path->conf.fixed_rate = 1;
-    path->conf.loss_limit = 255;
-    path->status          = mud::PROBING;
-    path->idle            = mud_now(m);
-
-    return path;
 }
 
 uint64_t mud::mud_now(mud* m) {
@@ -233,8 +174,8 @@ int mud::mud_get_paths(mud* m, paths *paths, sockaddress* local, sockaddress* re
     }
     unsigned count = 0;
 
-    for (unsigned i = 0; i < m->capacity; i++) {
-        path* path = &m->paths[i];
+    for (unsigned i = 0; i < m->paths.count; i++) {
+        path* path = &m->paths.path[i];
 
         if (local && local->sa.sa_family &&
             sockaddress_cmp_addr(local, &path->conf.local))
@@ -418,8 +359,8 @@ void mud::mud_delete(mud* m) {
     if (!m)
         return;
 
-    if (m->paths)
-        free(m->paths);
+    if (m->paths.path)
+        free(m->paths.path);
 
     if (m->fd >= 0)
         close(m->fd);
@@ -617,8 +558,8 @@ int mud::mud_update(mud* m) {
     if (!mud_keyx_init(m, now))
         now = mud_now(m);
 
-    for (unsigned i = 0; i < m->capacity; i++) {
-        ::mud::path* path = &m->paths[i];
+    for (unsigned i = 0; i < m->paths.count; i++) {
+        ::mud::path* path = &m->paths.path[i];
 
         if (mud_path_update(m, path, now)) {
             if (next_pref > path->conf.pref && path->conf.pref > m->pref)
@@ -640,8 +581,8 @@ int mud::mud_update(mud* m) {
     } else {
         m->pref = next_pref;
 
-        for (unsigned i = 0; i < m->capacity; i++) {
-            ::mud::path* path = &m->paths[i];
+        for (unsigned i = 0; i < m->paths.count; i++) {
+            ::mud::path* path = &m->paths.path[i];
 
             if (!mud_path_update(m, path, now))
                 continue;
@@ -666,9 +607,8 @@ int mud::mud_set_path(mud* m, path_conf *conf) {
         errno = EINVAL;
         return -1;
     }
-    ::mud::path* path = mud_get_path(m, &conf->local,
-                                              &conf->remote,
-                                              conf->state);
+
+    ::mud::path* path = paths_get_path(&m->paths, *conf, mud_now(m));
     if (!path)
         return -1;
 
@@ -958,7 +898,7 @@ int mud::mud_recv(mud* m, void *data, size_t size) {
     if (sockaddress_localaddr(&local, &msg))
         return 0;
 
-    ::mud::path* path = mud_get_path(m, &local, &remote, PASSIVE);
+    ::mud::path* path = paths_get_path(&m->paths, {.local = local, .remote = remote, .state = PASSIVE}, mud_now(m));
 
     if (!path || path->conf.state <= DOWN)
         return 0;
