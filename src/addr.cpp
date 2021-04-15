@@ -8,7 +8,7 @@ int mud::addr_is_v6(addr* addr) {
     return memcmp(addr->v6, v4mapped, sizeof(v4mapped));
 }
 
-int mud::addr_from_sock(addr* addr, sockaddress* sock) {
+int mud::addr_from_sockaddress(addr* addr, sockaddress* sock) {
     if (sock->sa.sa_family == AF_INET) {
         memset(addr->zero, 0, sizeof(addr->zero));
         memset(addr->ff, 0xFF, sizeof(addr->ff));

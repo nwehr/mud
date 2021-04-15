@@ -7,52 +7,6 @@
 #endif
 
 #include "../mud.h"
-#include "../aegis256/aegis256.h"
-
-#include <errno.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <unistd.h>
-
-#include <sys/ioctl.h>
-#include <sys/time.h>
-
-#include <arpa/inet.h>
-#include <net/if.h>
-
-#include <sodium.h>
-
-
-#if !defined MSG_CONFIRM
-#define MSG_CONFIRM 0
-#endif
-
-#if defined __linux__
-#define MUD_V4V6 1
-#else
-#define MUD_V4V6 0
-#endif
-
-#if defined IP_PKTINFO
-#define MUD_PKTINFO IP_PKTINFO
-#define MUD_PKTINFO_SRC(X) &((in_pktinfo *)(X))->ipi_addr
-#define MUD_PKTINFO_DST(X) &((in_pktinfo *)(X))->ipi_spec_dst
-#define MUD_PKTINFO_SIZE sizeof(in_pktinfo)
-#elif defined IP_RECVDSTADDR
-#define MUD_PKTINFO IP_RECVDSTADDR
-#define MUD_PKTINFO_SRC(X) (X)
-#define MUD_PKTINFO_DST(X) (X)
-#define MUD_PKTINFO_SIZE sizeof(in_addr)
-#endif
-
-#if defined IP_MTU_DISCOVER
-#define MUD_DFRAG IP_MTU_DISCOVER
-#define MUD_DFRAG_OPT IP_PMTUDISC_PROBE
-#elif defined IP_DONTFRAG
-#define MUD_DFRAG IP_DONTFRAG
-#define MUD_DFRAG_OPT 1
-#endif
 
 static int mud_send_msg(mud::mud* m, mud::path* path, uint64_t now, uint64_t sent_time, uint64_t fw_bytes, uint64_t fw_total, size_t size);
 
@@ -232,22 +186,6 @@ static inline void mud_unmapv4(mud::sockaddress* addr) {
     addr->sin = sin;
 }
 
-static inline uint64_t mud_now(mud::mud* m) {
-#if defined __APPLE__
-    return MUD_TIME_MASK(m->base_time
-            + (mach_absolute_time() * m->mtid.numer / m->mtid.denom)
-            / 1000ULL);
-#elif defined CLOCK_MONOTONIC
-    timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return MUD_TIME_MASK(mud->base_time
-            + (uint64_t)tv.tv_sec * MUD_ONE_SEC
-            + (uint64_t)tv.tv_nsec / MUD_ONE_MSEC);
-#else
-    return mud_time();
-#endif
-}
-
 static mud::path* mud_select_path(mud::mud* m, uint16_t cursor) {
     uint64_t k = (cursor * m->rate) >> 16;
 
@@ -263,32 +201,6 @@ static mud::path* mud_select_path(mud::mud* m, uint16_t cursor) {
         k -= path->tx.rate;
     }
     return NULL;
-}
-
-int mud::mud_get_paths(mud* m, paths *paths, sockaddress* local, sockaddress* remote) {
-    if (!paths) {
-        errno = EINVAL;
-        return -1;
-    }
-    unsigned count = 0;
-
-    for (unsigned i = 0; i < m->capacity; i++) {
-        path* path = &m->paths[i];
-
-        if (local && local->sa.sa_family &&
-            mud_cmp_addr(local, &path->conf.local))
-            continue;
-
-        if (remote && remote->sa.sa_family &&
-            (mud_cmp_addr(remote, &path->conf.remote) ||
-             mud_cmp_port(remote, &path->conf.remote)))
-            continue;
-
-        if (path->conf.state != EMPTY)
-            paths->path[count++] = *path;
-    }
-    paths->count = count;
-    return 0;
 }
 
 static mud::path* mud_get_path(mud::mud* m, mud::sockaddress* local,mud::sockaddress* remote, mud::state state) {
@@ -350,6 +262,47 @@ static mud::path* mud_get_path(mud::mud* m, mud::sockaddress* local,mud::sockadd
     return path;
 }
 
+uint64_t mud::mud_now(mud* m) {
+#if defined __APPLE__
+    return MUD_TIME_MASK(m->base_time
+            + (mach_absolute_time() * m->mtid.numer / m->mtid.denom)
+            / 1000ULL);
+#elif defined CLOCK_MONOTONIC
+    timespec tv;
+    clock_gettime(CLOCK_MONOTONIC, &tv);
+    return MUD_TIME_MASK(mud->base_time
+            + (uint64_t)tv.tv_sec * MUD_ONE_SEC
+            + (uint64_t)tv.tv_nsec / MUD_ONE_MSEC);
+#else
+    return mud_time();
+#endif
+}
+
+int mud::mud_get_paths(mud* m, paths *paths, sockaddress* local, sockaddress* remote) {
+    if (!paths) {
+        errno = EINVAL;
+        return -1;
+    }
+    unsigned count = 0;
+
+    for (unsigned i = 0; i < m->capacity; i++) {
+        path* path = &m->paths[i];
+
+        if (local && local->sa.sa_family &&
+            mud_cmp_addr(local, &path->conf.local))
+            continue;
+
+        if (remote && remote->sa.sa_family &&
+            (mud_cmp_addr(remote, &path->conf.remote) ||
+             mud_cmp_port(remote, &path->conf.remote)))
+            continue;
+
+        if (path->conf.state != EMPTY)
+            paths->path[count++] = *path;
+    }
+    paths->count = count;
+    return 0;
+}
 
 int mud::mud_get_errors(mud* m, errors* err) {
     if (!err) {
@@ -376,20 +329,6 @@ size_t mud::mud_get_mtu(mud* m) {
         return 0;
 
     return m->mtu - MUD_PKT_MIN_SIZE;
-}
-
-static int mud_setup_socket(int fd, int v4, int v6) {
-    if ((mud_sso_int(fd, SOL_SOCKET, SO_REUSEADDR, 1)) ||
-        (v4 && mud_sso_int(fd, IPPROTO_IP, MUD_PKTINFO, 1)) ||
-        (v6 && mud_sso_int(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, 1)) ||
-        (v6 && mud_sso_int(fd, IPPROTO_IPV6, IPV6_V6ONLY, !v4)))
-        return -1;
-
-#if defined MUD_DFRAG
-    if (v4)
-        mud_sso_int(fd, IPPROTO_IP, MUD_DFRAG, MUD_DFRAG_OPT);
-#endif
-    return 0;
 }
 
 static int mud_keyx(mud::keyx_t* kx, unsigned char* remote, int aes) {
@@ -469,6 +408,20 @@ mud::mud* mud::mud_create(sockaddress* addr, unsigned char* key, int* aes) {
 
     memset(m, 0, sizeof(mud));
     m->fd = socket(addr->sa.sa_family, SOCK_DGRAM, IPPROTO_UDP);
+
+    auto mud_setup_socket = [](int fd, int v4, int v6) {
+        if ((mud_sso_int(fd, SOL_SOCKET, SO_REUSEADDR, 1)) ||
+            (v4 && mud_sso_int(fd, IPPROTO_IP, MUD_PKTINFO, 1)) ||
+            (v6 && mud_sso_int(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, 1)) ||
+            (v6 && mud_sso_int(fd, IPPROTO_IPV6, IPV6_V6ONLY, !v4)))
+            return -1;
+
+    #if defined MUD_DFRAG
+        if (v4)
+            mud_sso_int(fd, IPPROTO_IP, MUD_DFRAG, MUD_DFRAG_OPT);
+    #endif
+        return 0;
+    };
 
     if ((m->fd == -1) ||
         (mud_setup_socket(m->fd, v4, v6)) ||
@@ -616,14 +569,6 @@ static int mud_localaddr(mud::sockaddress* addr, msghdr *msg) {
     return 1;
 }
 
-static int mud_addr_is_v6(mud::addr* addr) {
-    static const unsigned char v4mapped[] = {
-        [10] = 255,
-        [11] = 255,
-    };
-    return memcmp(addr->v6, v4mapped, sizeof(v4mapped));
-}
-
 static int mud_addr_from_sock(mud::addr* addr, mud::sockaddress* sock) {
     if (sock->sa.sa_family == AF_INET) {
         memset(addr->zero, 0, sizeof(addr->zero));
@@ -641,7 +586,7 @@ static int mud_addr_from_sock(mud::addr* addr, mud::sockaddress* sock) {
 }
 
 static void mud_sock_from_addr(mud::sockaddress* sock, mud::addr* addr) {
-    if (mud_addr_is_v6(addr)) {
+    if (mud::addr_is_v6(addr)) {
         sock->sin6.sin6_family = AF_INET6;
         memcpy(&sock->sin6.sin6_addr, addr->v6, 16);
         memcpy(&sock->sin6.sin6_port, addr->port, 2);

@@ -1,5 +1,5 @@
 CC     = c++
-CFLAGS = -Wall -O2
+CFLAGS = -Wall -O2 -std=c++17
 LDLIBS = -lsodium
 
 server:
@@ -14,6 +14,8 @@ client:
 	$(CC) $(CFLAGS) -o build/client \
 		aegis256/aegis256.c \
 		src/mud.cpp \
+		src/addr.cpp \
+		src/needs_a_home.cpp \
 		test/client.cpp \
 		$(LDLIBS)
 

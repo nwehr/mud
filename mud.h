@@ -4,11 +4,53 @@
 #include <inttypes.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-
 #include <sodium.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+#include <sys/ioctl.h>
+#include <sys/time.h>
+
+#include <arpa/inet.h>
+#include <net/if.h>
 
 #if defined __APPLE__
 #include <mach/mach_time.h>
+#endif
+
+#include "aegis256/aegis256.h"
+
+#if !defined MSG_CONFIRM
+#define MSG_CONFIRM 0
+#endif
+
+#if defined __linux__
+#define MUD_V4V6 1
+#else
+#define MUD_V4V6 0
+#endif
+
+#if defined IP_PKTINFO
+#define MUD_PKTINFO IP_PKTINFO
+#define MUD_PKTINFO_SRC(X) &((in_pktinfo *)(X))->ipi_addr
+#define MUD_PKTINFO_DST(X) &((in_pktinfo *)(X))->ipi_spec_dst
+#define MUD_PKTINFO_SIZE sizeof(in_pktinfo)
+#elif defined IP_RECVDSTADDR
+#define MUD_PKTINFO IP_RECVDSTADDR
+#define MUD_PKTINFO_SRC(X) (X)
+#define MUD_PKTINFO_DST(X) (X)
+#define MUD_PKTINFO_SIZE sizeof(in_addr)
+#endif
+
+#if defined IP_MTU_DISCOVER
+#define MUD_DFRAG IP_MTU_DISCOVER
+#define MUD_DFRAG_OPT IP_PMTUDISC_PROBE
+#elif defined IP_DONTFRAG
+#define MUD_DFRAG IP_DONTFRAG
+#define MUD_DFRAG_OPT 1
 #endif
 
 #define MUD_PATH_MAX    (32U)
@@ -85,10 +127,13 @@ namespace mud {
     };
 
     union sockaddress {
-        struct sockaddr sa;
-        struct sockaddr_in sin;
-        struct sockaddr_in6 sin6;
+        sockaddr sa;
+        sockaddr_in sin;
+        sockaddr_in6 sin6;
     };
+
+    int addr_is_v6(addr*);
+    int addr_from_sockaddress(addr*, sockaddress*);
 
     struct path_conf {
         enum state state;
@@ -215,6 +260,8 @@ namespace mud {
 
     mud* mud_create (sockaddress*, unsigned char*, int*);
     void mud_delete (mud*);
+
+    uint64_t mud_now(mud*);
 
     int mud_set(mud*, conf*);
     int mud_set_path(mud*, path_conf*);
