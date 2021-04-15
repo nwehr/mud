@@ -121,13 +121,13 @@ namespace mud {
         sockaddr_in6 sin6;
     };
 
-    int sockaddress_localaddr(sockaddress*, msghdr*);
-    int sockaddress_cmp_addr(sockaddress*, sockaddress*);
-    int sockaddress_cmp_port(sockaddress*, sockaddress*);
     struct addr; // forward declaration
     void sockaddress_from_addr(sockaddress*, addr*);
     void sockaddress_unmapv4(sockaddress*);
-
+    int sockaddress_localaddr(sockaddress*, msghdr*);
+    int sockaddress_cmp_addr(sockaddress*, sockaddress*);
+    int sockaddress_cmp_port(sockaddress*, sockaddress*);
+    
     struct addr {
         union {
             unsigned char v6[16];
@@ -229,7 +229,7 @@ namespace mud {
         unsigned char loss_limit;
         addr addr;
     };
-    
+
     struct crypto_key {
         struct {
             unsigned char key[MUD_KEY_SIZE];

@@ -1,10 +1,10 @@
-CC     = c++
-CFLAGS = -Wall -O2 -std=c++17
+CC     = clang++
+CFLAGS = -Wall -std=c++17 -g
 LDLIBS = -lsodium
 
 server:
-	rm -f build/server
-	$(CC) $(CFLAGS) -o build/server \
+	rm -f server.out
+	$(CC) $(CFLAGS) -o server.out \
 		aegis256/aegis256.c  \
 		src/mud.cpp \
 		src/addr.cpp \
@@ -12,12 +12,14 @@ server:
 		src/stat.cpp \
 		src/path.cpp \
 		src/paths.cpp \
+		src/crypto_keys.cpp \
+		src/crypto_key.cpp \
 		test/server.cpp \
 		$(LDLIBS)
 
 client:
-	rm -f build/client
-	$(CC) $(CFLAGS) -o build/client \
+	rm -f client.out
+	$(CC) $(CFLAGS) -o client.out \
 		aegis256/aegis256.c \
 		src/mud.cpp \
 		src/addr.cpp \
@@ -31,6 +33,7 @@ client:
 		$(LDLIBS)
 
 clean:
-	rm -f build/*
+	rm -f *.out 
+	rm -rf *.dSYM
 
 .PHONY: test clean

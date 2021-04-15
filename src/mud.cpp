@@ -638,15 +638,18 @@ int mud::mud_recv(mud* m, void *data, size_t size) {
         m->err.clocksync.count++;
         return 0;
     }
+    
     const size_t ret = MUD_MSG(sent_time)
                      ? mud_decrypt_msg(m, (unsigned char*)data, size, packet, (size_t)packet_size)
                      : crypto_keys_decrypt(&m->keys, (unsigned char*)data, size, packet, (size_t)packet_size);
+    
     if (!ret) {
         m->err.decrypt.addr = remote;
         m->err.decrypt.time = now;
         m->err.decrypt.count++;
         return 0;
     }
+
     sockaddress local;
 
     if (sockaddress_localaddr(&local, &msg))
