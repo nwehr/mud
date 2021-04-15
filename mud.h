@@ -114,6 +114,19 @@ namespace mud {
         uint64_t kxtimeout;
     };
 
+    union sockaddress {
+        sockaddr sa;
+        sockaddr_in sin;
+        sockaddr_in6 sin6;
+    };
+
+    int sockaddress_localaddr(sockaddress*, msghdr*);
+    int sockaddress_cmp_addr(sockaddress*, sockaddress*);
+    int sockaddress_cmp_port(sockaddress*, sockaddress*);
+    struct addr; // forward declaration
+    void sockaddress_from_addr(sockaddress*, addr*);
+    void sockaddress_unmapv4(sockaddress*);
+
     struct addr {
         union {
             unsigned char v6[16];
@@ -126,11 +139,7 @@ namespace mud {
         unsigned char port[2];
     };
 
-    union sockaddress {
-        sockaddr sa;
-        sockaddr_in sin;
-        sockaddr_in6 sin6;
-    };
+    
 
     int addr_is_v6(addr*);
     int addr_from_sockaddress(addr*, sockaddress*);

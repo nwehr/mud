@@ -1,6 +1,14 @@
+#if defined __APPLE__
+#define __APPLE_USE_RFC_3542
+#endif
+
+#if defined __linux__ && !defined _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include "../mud.h"
 
-int mud::sockaddress_localaddr(sockaddress* addr, msghdr *msg) {
+int mud::sockaddress_localaddr(sockaddress* addr, msghdr* msg) {
     cmsghdr *cmsg = CMSG_FIRSTHDR(msg);
 
     for (; cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {

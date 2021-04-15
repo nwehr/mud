@@ -15,6 +15,7 @@ client:
 		aegis256/aegis256.c \
 		src/mud.cpp \
 		src/addr.cpp \
+		src/sockaddress.cpp \
 		src/needs_a_home.cpp \
 		test/client.cpp \
 		$(LDLIBS)

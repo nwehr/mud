@@ -102,34 +102,6 @@ static int mud_sso_int(int fd, int level, int optname, int opt) {
     return setsockopt(fd, level, optname, &opt, sizeof(opt));
 }
 
-static inline int mud_cmp_addr(mud::sockaddress* a, mud::sockaddress* b) {
-    if (a->sa.sa_family != b->sa.sa_family)
-        return 1;
-
-    if (a->sa.sa_family == AF_INET)
-        return memcmp(&a->sin.sin_addr, &b->sin.sin_addr,
-                      sizeof(a->sin.sin_addr));
-
-    if (a->sa.sa_family == AF_INET6)
-        return memcmp(&a->sin6.sin6_addr, &b->sin6.sin6_addr,
-                      sizeof(a->sin6.sin6_addr));
-    return 1;
-}
-
-static inline int mud_cmp_port(mud::sockaddress* a, mud::sockaddress* b) {
-    if (a->sa.sa_family != b->sa.sa_family)
-        return 1;
-
-    if (a->sa.sa_family == AF_INET)
-        return memcmp(&a->sin.sin_port, &b->sin.sin_port,
-                      sizeof(a->sin.sin_port));
-
-    if (a->sa.sa_family == AF_INET6)
-        return memcmp(&a->sin6.sin6_port, &b->sin6.sin6_port,
-                      sizeof(a->sin6.sin6_port));
-    return 1;
-}
-
 static void mud_hash_key(unsigned char* dst, unsigned char* key, unsigned char* secret, unsigned char* pk0, unsigned char* pk1) {
     crypto_generichash_state state;
 
@@ -168,24 +140,6 @@ static inline int mud_timeout(uint64_t now, uint64_t last, uint64_t timeout) {
     return (!last) || (MUD_TIME_MASK(now - last) >= timeout);
 }
 
-static inline void mud_unmapv4(mud::sockaddress* addr) {
-    if (addr->sa.sa_family != AF_INET6)
-        return;
-
-    if (!IN6_IS_ADDR_V4MAPPED(&addr->sin6.sin6_addr))
-        return;
-
-    sockaddr_in sin = {
-        .sin_family = AF_INET,
-        .sin_port = addr->sin6.sin6_port,
-    };
-    memcpy(&sin.sin_addr.s_addr,
-           &addr->sin6.sin6_addr.s6_addr[12],
-           sizeof(sin.sin_addr.s_addr));
-
-    addr->sin = sin;
-}
-
 static mud::path* mud_select_path(mud::mud* m, uint16_t cursor) {
     uint64_t k = (cursor * m->rate) >> 16;
 
@@ -214,9 +168,9 @@ static mud::path* mud_get_path(mud::mud* m, mud::sockaddress* local,mud::sockadd
         if (path->conf.state == mud::EMPTY)
             continue;
 
-        if (mud_cmp_addr(local, &path->conf.local)   ||
-            mud_cmp_addr(remote, &path->conf.remote) ||
-            mud_cmp_port(remote, &path->conf.remote))
+        if (sockaddress_cmp_addr(local, &path->conf.local)   ||
+            sockaddress_cmp_addr(remote, &path->conf.remote) ||
+            sockaddress_cmp_port(remote, &path->conf.remote))
             continue;
 
         return path;
@@ -289,12 +243,12 @@ int mud::mud_get_paths(mud* m, paths *paths, sockaddress* local, sockaddress* re
         path* path = &m->paths[i];
 
         if (local && local->sa.sa_family &&
-            mud_cmp_addr(local, &path->conf.local))
+            sockaddress_cmp_addr(local, &path->conf.local))
             continue;
 
         if (remote && remote->sa.sa_family &&
-            (mud_cmp_addr(remote, &path->conf.remote) ||
-             mud_cmp_port(remote, &path->conf.remote)))
+            (sockaddress_cmp_addr(remote, &path->conf.remote) ||
+             sockaddress_cmp_port(remote, &path->conf.remote)))
             continue;
 
         if (path->conf.state != EMPTY)
@@ -544,31 +498,6 @@ static size_t mud_decrypt_msg(mud::mud* m, unsigned char* dst, size_t dst_size, 
     return size;
 }
 
-static int mud_localaddr(mud::sockaddress* addr, msghdr *msg) {
-    cmsghdr *cmsg = CMSG_FIRSTHDR(msg);
-
-    for (; cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
-        if ((cmsg->cmsg_level == IPPROTO_IP) &&
-            (cmsg->cmsg_type == MUD_PKTINFO)) {
-            addr->sa.sa_family = AF_INET;
-            memcpy(&addr->sin.sin_addr,
-                   MUD_PKTINFO_SRC(CMSG_DATA(cmsg)),
-                   sizeof(in_addr));
-            return 0;
-        }
-        if ((cmsg->cmsg_level == IPPROTO_IPV6) &&
-            (cmsg->cmsg_type == IPV6_PKTINFO)) {
-            addr->sa.sa_family = AF_INET6;
-            memcpy(&addr->sin6.sin6_addr,
-                   &((in6_pktinfo *)CMSG_DATA(cmsg))->ipi6_addr,
-                   sizeof(in6_addr));
-            mud_unmapv4(addr);
-            return 0;
-        }
-    }
-    return 1;
-}
-
 static int mud_addr_from_sock(mud::addr* addr, mud::sockaddress* sock) {
     if (sock->sa.sa_family == AF_INET) {
         memset(addr->zero, 0, sizeof(addr->zero));
@@ -583,18 +512,6 @@ static int mud_addr_from_sock(mud::addr* addr, mud::sockaddress* sock) {
         return -1;
     }
     return 0;
-}
-
-static void mud_sock_from_addr(mud::sockaddress* sock, mud::addr* addr) {
-    if (mud::addr_is_v6(addr)) {
-        sock->sin6.sin6_family = AF_INET6;
-        memcpy(&sock->sin6.sin6_addr, addr->v6, 16);
-        memcpy(&sock->sin6.sin6_port, addr->port, 2);
-    } else {
-        sock->sin.sin_family = AF_INET;
-        memcpy(&sock->sin.sin_addr, addr->v4, 4);
-        memcpy(&sock->sin.sin_port, addr->port, 2);
-    }
 }
 
 static void mud_update_rl(mud::mud* m, mud::path* path, uint64_t now, uint64_t tx_dt, uint64_t tx_bytes, uint64_t tx_pkt, uint64_t rx_dt, uint64_t rx_bytes, uint64_t rx_pkt) {
@@ -974,7 +891,7 @@ static void mud_recv_msg(mud::mud* m, mud::path* path, uint64_t now, uint64_t se
     mud::msg *msg = (mud::msg *)data;
     const uint64_t tx_time = MUD_LOAD_MSG(msg->sent_time);
 
-    mud_sock_from_addr(&path->remote, &msg->addr);
+    mud::sockaddress_from_addr(&path->remote, &msg->addr);
 
     if (tx_time) {
         mud_update_stat(&path->rtt, MUD_TIME_MASK(now - tx_time));
@@ -1079,7 +996,7 @@ int mud::mud_recv(mud* m, void *data, size_t size) {
     const uint64_t now = mud_now(m);
     const uint64_t sent_time = mud_load(packet, MUD_TIME_SIZE);
 
-    mud_unmapv4(&remote);
+    sockaddress_unmapv4(&remote);
 
     if ((MUD_TIME_MASK(now - sent_time) > m->conf.timetolerance) &&
         (MUD_TIME_MASK(sent_time - now) > m->conf.timetolerance)) {
@@ -1099,7 +1016,7 @@ int mud::mud_recv(mud* m, void *data, size_t size) {
     }
     sockaddress local;
 
-    if (mud_localaddr(&local, &msg))
+    if (sockaddress_localaddr(&local, &msg))
         return 0;
 
     ::mud::path* path = mud_get_path(m, &local, &remote, PASSIVE);
