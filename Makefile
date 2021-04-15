@@ -25,6 +25,7 @@ client:
 		src/stat.cpp \
 		src/path.cpp \
 		src/paths.cpp \
+		src/crypto_keys.cpp \
 		test/client.cpp \
 		$(LDLIBS)
 

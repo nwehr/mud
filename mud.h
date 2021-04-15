@@ -212,12 +212,6 @@ namespace mud {
         error keyx;
     };
 
-    struct crypto_opt {
-        unsigned char* dst;
-        const unsigned char* src;
-        size_t size;
-    };
-
     struct msg {
         unsigned char sent_time[MUD_TIME_SIZE];
         unsigned char aes;
@@ -236,6 +230,12 @@ namespace mud {
         addr addr;
     };
 
+    struct crypto_opt {
+        unsigned char* dst;
+        const unsigned char* src;
+        size_t size;
+    };
+
     struct crypto_key {
         struct {
             unsigned char key[MUD_KEY_SIZE];
@@ -243,7 +243,7 @@ namespace mud {
         int aes;
     };
 
-    struct keyx_t {
+    struct crypto_keys {
         uint64_t time;
         unsigned char secret[crypto_scalarmult_SCALARBYTES];
         unsigned char remote[MUD_PUBKEY_SIZE];
@@ -253,12 +253,15 @@ namespace mud {
         int aes;
     };
 
+    int crypto_keys_init(crypto_keys* keys, uint64_t now, uint64_t timeout);
+    int crypto_keys_exchange(crypto_keys* keys, unsigned char* remote_key, int aes);
+
     struct mud {
         int fd;
         conf conf;
         paths paths;
         unsigned pref;
-        keyx_t keyx;
+        crypto_keys keys;
         uint64_t last_recv_time;
         size_t mtu;
         errors err;
