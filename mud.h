@@ -108,6 +108,8 @@ namespace mud {
         int setup;
     };
 
+    void stat_update(stat*, const uint64_t val);
+
     struct conf {
         uint64_t keepalive;
         uint64_t timetolerance;
@@ -160,7 +162,7 @@ namespace mud {
         struct path_conf conf;
         enum path_status status;
         sockaddress remote;
-        struct stat rtt;
+        stat rtt;
         struct {
             uint64_t total;
             uint64_t bytes;
@@ -189,6 +191,8 @@ namespace mud {
         } mtu;
         uint64_t idle;
     };
+
+    void path_update_mtu(path*, size_t);
 
     struct error {
         sockaddress addr;

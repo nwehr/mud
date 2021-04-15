@@ -130,12 +130,6 @@ static inline uint64_t mud_time(void) {
 #endif
 }
 
-
-
-static inline uint64_t mud_abs_diff(uint64_t a, uint64_t b) {
-    return (a >= b) ? a - b : b - a;
-}
-
 static inline int mud_timeout(uint64_t now, uint64_t last, uint64_t timeout) {
     return (!last) || (MUD_TIME_MASK(now - last) >= timeout);
 }
@@ -498,22 +492,6 @@ static size_t mud_decrypt_msg(mud::mud* m, unsigned char* dst, size_t dst_size, 
     return size;
 }
 
-static int mud_addr_from_sock(mud::addr* addr, mud::sockaddress* sock) {
-    if (sock->sa.sa_family == AF_INET) {
-        memset(addr->zero, 0, sizeof(addr->zero));
-        memset(addr->ff, 0xFF, sizeof(addr->ff));
-        memcpy(addr->v4, &sock->sin.sin_addr, 4);
-        memcpy(addr->port, &sock->sin.sin_port, 2);
-    } else if (sock->sa.sa_family == AF_INET6) {
-        memcpy(addr->v6, &sock->sin6.sin6_addr, 16);
-        memcpy(addr->port, &sock->sin6.sin6_port, 2);
-    } else {
-        errno = EAFNOSUPPORT;
-        return -1;
-    }
-    return 0;
-}
-
 static void mud_update_rl(mud::mud* m, mud::path* path, uint64_t now, uint64_t tx_dt, uint64_t tx_bytes, uint64_t tx_pkt, uint64_t rx_dt, uint64_t rx_bytes, uint64_t rx_pkt) {
     if (rx_dt && rx_dt > tx_dt + (tx_dt >> 3)) {
         if (!path->conf.fixed_rate)
@@ -539,45 +517,6 @@ static void mud_update_rl(mud::mud* m, mud::path* path, uint64_t now, uint64_t t
         path->tx.rate = path->conf.tx_max_rate;
 }
 
-static void mud_update_mtu(mud::path* path, size_t size) {
-    if (!path->mtu.probe) {
-        if (!path->mtu.last) {
-            path->mtu.min = MUD_MTU_MIN;
-            path->mtu.max = MUD_MTU_MAX;
-            path->mtu.probe = MUD_MTU_MAX;
-        }
-        return;
-    }
-    if (size) {
-        if (path->mtu.min > size || path->mtu.max < size)
-            return;
-        path->mtu.min = size + 1;
-        path->mtu.last = size;
-    } else {
-        path->mtu.max = path->mtu.probe - 1;
-    }
-
-    size_t probe = (path->mtu.min + path->mtu.max) >> 1;
-
-    if (path->mtu.min > path->mtu.max) {
-        path->mtu.probe = 0;
-    } else {
-        path->mtu.probe = probe;
-    }
-}
-
-static void mud_update_stat(mud::stat *stat, const uint64_t val) {
-    if (stat->setup) {
-        const uint64_t var = mud_abs_diff(stat->val, val);
-        stat->var = ((stat->var << 1) + stat->var + var) >> 2;
-        stat->val = ((stat->val << 3) - stat->val + val) >> 3;
-    } else {
-        stat->setup = 1;
-        stat->var = val >> 1;
-        stat->val = val;
-    }
-}
-
 static int mud_path_update(mud::mud* m, mud::path* path, uint64_t now) {
     switch (path->conf.state) {
     case mud::DOWN:
@@ -595,7 +534,7 @@ static int mud_path_update(mud::mud* m, mud::path* path, uint64_t now) {
     }
     if (path->msg.sent >= MUD_MSG_SENT_MAX) {
         if (path->mtu.probe) {
-            mud_update_mtu(path, 0);
+            path_update_mtu(path, 0);
             path->msg.sent = 0;
         } else {
             path->msg.sent = MUD_MSG_SENT_MAX;
@@ -818,7 +757,7 @@ static int mud_send_msg(mud::mud* m, mud::path* path, uint64_t now, uint64_t sen
     mud_store(dst, MUD_MSG_MARK(now), MUD_TIME_SIZE);
     MUD_STORE_MSG(msg->sent_time, sent_time);
 
-    if (mud_addr_from_sock(&msg->addr, &path->conf.remote))
+    if (addr_from_sockaddress(&msg->addr, &path->conf.remote))
         return -1;
 
     memcpy(msg->pkey, m->keyx.local, sizeof(m->keyx.local));
@@ -894,7 +833,7 @@ static void mud_recv_msg(mud::mud* m, mud::path* path, uint64_t now, uint64_t se
     mud::sockaddress_from_addr(&path->remote, &msg->addr);
 
     if (tx_time) {
-        mud_update_stat(&path->rtt, MUD_TIME_MASK(now - tx_time));
+        mud::stat_update(&path->rtt, MUD_TIME_MASK(now - tx_time));
 
         const uint64_t tx_bytes = MUD_LOAD_MSG(msg->fw.bytes);
         const uint64_t tx_total = MUD_LOAD_MSG(msg->fw.total);
@@ -927,7 +866,7 @@ static void mud_recv_msg(mud::mud* m, mud::path* path, uint64_t now, uint64_t se
         if (path->conf.state == mud::PASSIVE)
             return;
 
-        mud_update_mtu(path, size);
+        path_update_mtu(path, size);
 
         if (path->mtu.last && path->mtu.last == MUD_LOAD_MSG(msg->mtu))
             path->mtu.ok = path->mtu.last;

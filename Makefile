@@ -3,9 +3,14 @@ CFLAGS = -Wall -O2 -std=c++17
 LDLIBS = -lsodium
 
 server:
+	rm -f build/server
 	$(CC) $(CFLAGS) -o build/server \
 		aegis256/aegis256.c  \
 		src/mud.cpp \
+		src/addr.cpp \
+		src/sockaddress.cpp \
+		src/stat.cpp \
+		src/path.cpp \
 		test/server.cpp \
 		$(LDLIBS)
 
@@ -16,11 +21,12 @@ client:
 		src/mud.cpp \
 		src/addr.cpp \
 		src/sockaddress.cpp \
-		src/needs_a_home.cpp \
+		src/stat.cpp \
+		src/path.cpp \
 		test/client.cpp \
 		$(LDLIBS)
 
 clean:
-	rm -f build/client
+	rm -f build/*
 
 .PHONY: test clean
