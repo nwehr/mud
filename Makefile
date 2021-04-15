@@ -3,12 +3,21 @@ CFLAGS = -Wall -O2
 LDLIBS = -lsodium
 
 server:
-	$(CC) $(CFLAGS) -o server server.cpp mud.cpp aegis256.c  $(LDLIBS)
+	$(CC) $(CFLAGS) -o build/server \
+		aegis256/aegis256.c  \
+		src/mud.cpp \
+		test/server.cpp \
+		$(LDLIBS)
 
 client:
-	$(CC) $(CFLAGS) -o client client.cpp mud.cpp aegis256/aegis256.c $(LDLIBS)
+	rm -f build/client
+	$(CC) $(CFLAGS) -o build/client \
+		aegis256/aegis256.c \
+		src/mud.cpp \
+		test/client.cpp \
+		$(LDLIBS)
 
 clean:
-	rm -f test
+	rm -f build/client
 
 .PHONY: test clean

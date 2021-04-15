@@ -6,7 +6,8 @@
 #define _GNU_SOURCE
 #endif
 
-#include "mud.h"
+#include "../mud.h"
+#include "../aegis256/aegis256.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -21,7 +22,7 @@
 #include <net/if.h>
 
 #include <sodium.h>
-#include "aegis256/aegis256.h"
+
 
 #if !defined MSG_CONFIRM
 #define MSG_CONFIRM 0
@@ -53,9 +54,9 @@
 #define MUD_DFRAG_OPT 1
 #endif
 
-static int mud_send_msg(mud* m, mud_path* path, uint64_t now, uint64_t sent_time, uint64_t fw_bytes, uint64_t fw_total, size_t size);
+static int mud_send_msg(mud::mud* m, mud::path* path, uint64_t now, uint64_t sent_time, uint64_t fw_bytes, uint64_t fw_total, size_t size);
 
-static inline int mud_encrypt_opt(const mud_crypto_key* k, const mud_crypto_opt* c) {
+static inline int mud_encrypt_opt(const mud::crypto_key* k, const mud::crypto_opt* c) {
     if (k->aes) {
         unsigned char npub[AEGIS256_NPUBBYTES] = {0};
         memcpy(npub, c->dst, MUD_TIME_SIZE);
@@ -86,7 +87,7 @@ static inline int mud_encrypt_opt(const mud_crypto_key* k, const mud_crypto_opt*
     }
 }
 
-static inline int mud_decrypt_opt(const mud_crypto_key* k, const mud_crypto_opt* c) {
+static inline int mud_decrypt_opt(const mud::crypto_key* k, const mud::crypto_opt* c) {
     if (k->aes) {
         unsigned char npub[AEGIS256_NPUBBYTES] = {0};
         memcpy(npub, c->src, MUD_TIME_SIZE);
@@ -147,7 +148,7 @@ static int mud_sso_int(int fd, int level, int optname, int opt) {
     return setsockopt(fd, level, optname, &opt, sizeof(opt));
 }
 
-static inline int mud_cmp_addr(union mud_sockaddr* a, union mud_sockaddr* b) {
+static inline int mud_cmp_addr(mud::sockaddress* a, mud::sockaddress* b) {
     if (a->sa.sa_family != b->sa.sa_family)
         return 1;
 
@@ -161,7 +162,7 @@ static inline int mud_cmp_addr(union mud_sockaddr* a, union mud_sockaddr* b) {
     return 1;
 }
 
-static inline int mud_cmp_port(union mud_sockaddr* a, union mud_sockaddr* b) {
+static inline int mud_cmp_port(mud::sockaddress* a, mud::sockaddress* b) {
     if (a->sa.sa_family != b->sa.sa_family)
         return 1;
 
@@ -213,7 +214,7 @@ static inline int mud_timeout(uint64_t now, uint64_t last, uint64_t timeout) {
     return (!last) || (MUD_TIME_MASK(now - last) >= timeout);
 }
 
-static inline void mud_unmapv4(union mud_sockaddr* addr) {
+static inline void mud_unmapv4(mud::sockaddress* addr) {
     if (addr->sa.sa_family != AF_INET6)
         return;
 
@@ -231,7 +232,7 @@ static inline void mud_unmapv4(union mud_sockaddr* addr) {
     addr->sin = sin;
 }
 
-static inline uint64_t mud_now(mud* m) {
+static inline uint64_t mud_now(mud::mud* m) {
 #if defined __APPLE__
     return MUD_TIME_MASK(m->base_time
             + (mach_absolute_time() * m->mtid.numer / m->mtid.denom)
@@ -247,13 +248,13 @@ static inline uint64_t mud_now(mud* m) {
 #endif
 }
 
-static mud_path* mud_select_path(mud* m, uint16_t cursor) {
+static mud::path* mud_select_path(mud::mud* m, uint16_t cursor) {
     uint64_t k = (cursor * m->rate) >> 16;
 
     for (unsigned i = 0; i < m->capacity; i++) {
-        mud_path* path = &m->paths[i];
+        mud::path* path = &m->paths[i];
 
-        if (path->status != MUD_RUNNING)
+        if (path->status != mud::RUNNING)
             continue;
 
         if (k < path->tx.rate)
@@ -264,7 +265,7 @@ static mud_path* mud_select_path(mud* m, uint16_t cursor) {
     return NULL;
 }
 
-int mud_get_paths(mud* m, mud_paths *paths, union mud_sockaddr* local, union mud_sockaddr* remote) {
+int mud::mud_get_paths(mud* m, paths *paths, sockaddress* local, sockaddress* remote) {
     if (!paths) {
         errno = EINVAL;
         return -1;
@@ -272,7 +273,7 @@ int mud_get_paths(mud* m, mud_paths *paths, union mud_sockaddr* local, union mud
     unsigned count = 0;
 
     for (unsigned i = 0; i < m->capacity; i++) {
-        mud_path* path = &m->paths[i];
+        path* path = &m->paths[i];
 
         if (local && local->sa.sa_family &&
             mud_cmp_addr(local, &path->conf.local))
@@ -283,22 +284,22 @@ int mud_get_paths(mud* m, mud_paths *paths, union mud_sockaddr* local, union mud
              mud_cmp_port(remote, &path->conf.remote)))
             continue;
 
-        if (path->conf.state != MUD_EMPTY)
+        if (path->conf.state != EMPTY)
             paths->path[count++] = *path;
     }
     paths->count = count;
     return 0;
 }
 
-static mud_path* mud_get_path(mud* m, union mud_sockaddr* local, union mud_sockaddr* remote, enum mud_state state) {
+static mud::path* mud_get_path(mud::mud* m, mud::sockaddress* local,mud::sockaddress* remote, mud::state state) {
     if (local->sa.sa_family != remote->sa.sa_family) {
         errno = EINVAL;
         return NULL;
     }
     for (unsigned i = 0; i < m->capacity; i++) {
-        mud_path* path = &m->paths[i];
+        mud::path* path = &m->paths[i];
 
-        if (path->conf.state == MUD_EMPTY)
+        if (path->conf.state == mud::EMPTY)
             continue;
 
         if (mud_cmp_addr(local, &path->conf.local)   ||
@@ -308,14 +309,14 @@ static mud_path* mud_get_path(mud* m, union mud_sockaddr* local, union mud_socka
 
         return path;
     }
-    if (state <= MUD_DOWN) {
+    if (state <= mud::DOWN) {
         errno = 0;
         return NULL;
     }
-    mud_path* path = NULL;
+    mud::path* path = NULL;
 
     for (unsigned i = 0; i < m->capacity; i++) {
-        if (m->paths[i].conf.state == MUD_EMPTY) {
+        if (m->paths[i].conf.state == mud::EMPTY) {
             path = &m->paths[i];
             break;
         }
@@ -325,8 +326,7 @@ static mud_path* mud_get_path(mud* m, union mud_sockaddr* local, union mud_socka
             errno = ENOMEM;
             return NULL;
         }
-        mud_path* paths = (mud_path*)realloc(m->paths,
-                (m->capacity + 1) * sizeof(mud_path));
+        mud::path* paths = (mud::path*)realloc(m->paths, (m->capacity + 1) * sizeof(mud::path));
 
         if (!paths)
             return NULL;
@@ -336,7 +336,7 @@ static mud_path* mud_get_path(mud* m, union mud_sockaddr* local, union mud_socka
         m->capacity++;
         m->paths = paths;
     }
-    memset(path, 0, sizeof(mud_path));
+    memset(path, 0, sizeof(mud::path));
 
     path->conf.local      = *local;
     path->conf.remote     = *remote;
@@ -344,24 +344,24 @@ static mud_path* mud_get_path(mud* m, union mud_sockaddr* local, union mud_socka
     path->conf.beat       = 100 * MUD_ONE_MSEC;
     path->conf.fixed_rate = 1;
     path->conf.loss_limit = 255;
-    path->status          = MUD_PROBING;
+    path->status          = mud::PROBING;
     path->idle            = mud_now(m);
 
     return path;
 }
 
 
-int mud_get_errors(mud* m, mud_errors* err) {
+int mud::mud_get_errors(mud* m, errors* err) {
     if (!err) {
         errno = EINVAL;
         return -1;
     }
-    memcpy(err, &m->err, sizeof(mud_errors));
+    memcpy(err, &m->err, sizeof(errors));
     return 0;
 }
 
-int mud_set(mud* m, mud_conf *conf) {
-    mud_conf c = m->conf;
+int mud::mud_set(mud* m, conf* conf) {
+    ::mud::conf c = m->conf;
 
     if (conf->keepalive)     c.keepalive     = conf->keepalive;
     if (conf->timetolerance) c.timetolerance = conf->timetolerance;
@@ -371,7 +371,7 @@ int mud_set(mud* m, mud_conf *conf) {
     return 0;
 }
 
-size_t mud_get_mtu(mud* m) {
+size_t mud::mud_get_mtu(mud* m) {
     if (!m->mtu)
         return 0;
 
@@ -392,7 +392,7 @@ static int mud_setup_socket(int fd, int v4, int v6) {
     return 0;
 }
 
-static int mud_keyx(mud_keyx_t* kx, unsigned char* remote, int aes) {
+static int mud_keyx(mud::keyx_t* kx, unsigned char* remote, int aes) {
     unsigned char secret[crypto_scalarmult_BYTES];
 
     if (crypto_scalarmult(secret, kx->secret, remote))
@@ -414,8 +414,8 @@ static int mud_keyx(mud_keyx_t* kx, unsigned char* remote, int aes) {
     return 0;
 }
 
-static int mud_keyx_init(mud* m, uint64_t now) {
-    mud_keyx_t *kx = &m->keyx;
+static int mud_keyx_init(mud::mud* m, uint64_t now) {
+    mud::keyx_t* kx = &m->keyx;
 
     if (!mud_timeout(now, kx->time, m->conf.kxtimeout))
         return 1;
@@ -438,7 +438,7 @@ static int mud_keyx_init(mud* m, uint64_t now) {
     return 0;
 }
 
-mud* mud_create(union mud_sockaddr* addr, unsigned char* key, int* aes) {
+mud::mud* mud::mud_create(sockaddress* addr, unsigned char* key, int* aes) {
     if (!addr || !key || !aes)
         return NULL;
 
@@ -506,14 +506,14 @@ mud* mud_create(union mud_sockaddr* addr, unsigned char* key, int* aes) {
     return m;
 }
 
-int mud_get_fd(mud* m) {
+int mud::mud_get_fd(mud* m) {
     if (!m)
         return -1;
 
     return m->fd;
 }
 
-void mud_delete(mud* m) {
+void mud::mud_delete(mud* m) {
     if (!m)
         return;
 
@@ -526,13 +526,13 @@ void mud_delete(mud* m) {
     sodium_free(m);
 }
 
-static size_t mud_encrypt(mud* m, uint64_t now, unsigned char* dst, size_t dst_size, const unsigned char* src, size_t src_size) {
+static size_t mud_encrypt(mud::mud* m, uint64_t now, unsigned char* dst, size_t dst_size, const unsigned char* src, size_t src_size) {
     const size_t size = src_size + MUD_PKT_MIN_SIZE;
 
     if (size > dst_size)
         return 0;
 
-    const mud_crypto_opt opt = {
+    const mud::crypto_opt opt = {
         .dst = dst,
         .src = src,
         .size = src_size,
@@ -548,13 +548,13 @@ static size_t mud_encrypt(mud* m, uint64_t now, unsigned char* dst, size_t dst_s
     return size;
 }
 
-static size_t mud_decrypt(mud* m, unsigned char* dst, size_t dst_size, const unsigned char* src, size_t src_size) {
+static size_t mud_decrypt(mud::mud* m, unsigned char* dst, size_t dst_size, const unsigned char* src, size_t src_size) {
     const size_t size = src_size - MUD_PKT_MIN_SIZE;
 
     if (size > dst_size)
         return 0;
 
-    const mud_crypto_opt opt = {
+    const mud::crypto_opt opt = {
         .dst = dst,
         .src = src,
         .size = src_size,
@@ -573,13 +573,13 @@ static size_t mud_decrypt(mud* m, unsigned char* dst, size_t dst_size, const uns
     return size;
 }
 
-static size_t mud_decrypt_msg(mud* m, unsigned char* dst, size_t dst_size, const unsigned char* src, size_t src_size) {
+static size_t mud_decrypt_msg(mud::mud* m, unsigned char* dst, size_t dst_size, const unsigned char* src, size_t src_size) {
     const size_t size = src_size - MUD_PKT_MIN_SIZE;
 
-    if (size < sizeof(mud_msg) || size > dst_size)
+    if (size < sizeof(mud::msg) || size > dst_size)
         return 0;
 
-    const mud_crypto_opt opt = {
+    const mud::crypto_opt opt = {
         .dst = dst,
         .src = src,
         .size = src_size,
@@ -591,7 +591,7 @@ static size_t mud_decrypt_msg(mud* m, unsigned char* dst, size_t dst_size, const
     return size;
 }
 
-static int mud_localaddr(union mud_sockaddr* addr, msghdr *msg) {
+static int mud_localaddr(mud::sockaddress* addr, msghdr *msg) {
     cmsghdr *cmsg = CMSG_FIRSTHDR(msg);
 
     for (; cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
@@ -616,7 +616,7 @@ static int mud_localaddr(union mud_sockaddr* addr, msghdr *msg) {
     return 1;
 }
 
-static int mud_addr_is_v6(mud_addr* addr) {
+static int mud_addr_is_v6(mud::addr* addr) {
     static const unsigned char v4mapped[] = {
         [10] = 255,
         [11] = 255,
@@ -624,7 +624,7 @@ static int mud_addr_is_v6(mud_addr* addr) {
     return memcmp(addr->v6, v4mapped, sizeof(v4mapped));
 }
 
-static int mud_addr_from_sock(mud_addr* addr, union mud_sockaddr* sock) {
+static int mud_addr_from_sock(mud::addr* addr, mud::sockaddress* sock) {
     if (sock->sa.sa_family == AF_INET) {
         memset(addr->zero, 0, sizeof(addr->zero));
         memset(addr->ff, 0xFF, sizeof(addr->ff));
@@ -640,7 +640,7 @@ static int mud_addr_from_sock(mud_addr* addr, union mud_sockaddr* sock) {
     return 0;
 }
 
-static void mud_sock_from_addr(union mud_sockaddr* sock, mud_addr* addr) {
+static void mud_sock_from_addr(mud::sockaddress* sock, mud::addr* addr) {
     if (mud_addr_is_v6(addr)) {
         sock->sin6.sin6_family = AF_INET6;
         memcpy(&sock->sin6.sin6_addr, addr->v6, 16);
@@ -652,7 +652,7 @@ static void mud_sock_from_addr(union mud_sockaddr* sock, mud_addr* addr) {
     }
 }
 
-static void mud_update_rl(mud* m, mud_path* path, uint64_t now, uint64_t tx_dt, uint64_t tx_bytes, uint64_t tx_pkt, uint64_t rx_dt, uint64_t rx_bytes, uint64_t rx_pkt) {
+static void mud_update_rl(mud::mud* m, mud::path* path, uint64_t now, uint64_t tx_dt, uint64_t tx_bytes, uint64_t tx_pkt, uint64_t rx_dt, uint64_t rx_bytes, uint64_t rx_pkt) {
     if (rx_dt && rx_dt > tx_dt + (tx_dt >> 3)) {
         if (!path->conf.fixed_rate)
             path->tx.rate = (7 * rx_bytes * MUD_ONE_SEC) / (8 * rx_dt);
@@ -677,7 +677,7 @@ static void mud_update_rl(mud* m, mud_path* path, uint64_t now, uint64_t tx_dt, 
         path->tx.rate = path->conf.tx_max_rate;
 }
 
-static void mud_update_mtu(mud_path* path, size_t size) {
+static void mud_update_mtu(mud::path* path, size_t size) {
     if (!path->mtu.probe) {
         if (!path->mtu.last) {
             path->mtu.min = MUD_MTU_MIN;
@@ -704,7 +704,7 @@ static void mud_update_mtu(mud_path* path, size_t size) {
     }
 }
 
-static void mud_update_stat(mud_stat *stat, const uint64_t val) {
+static void mud_update_stat(mud::stat *stat, const uint64_t val) {
     if (stat->setup) {
         const uint64_t var = mud_abs_diff(stat->val, val);
         stat->var = ((stat->var << 1) + stat->var + var) >> 2;
@@ -716,19 +716,19 @@ static void mud_update_stat(mud_stat *stat, const uint64_t val) {
     }
 }
 
-static int mud_path_update(mud* m, mud_path* path, uint64_t now) {
+static int mud_path_update(mud::mud* m, mud::path* path, uint64_t now) {
     switch (path->conf.state) {
-    case MUD_DOWN:
-        path->status = MUD_DELETING;
+    case mud::DOWN:
+        path->status = mud::DELETING;
         if (mud_timeout(now, path->rx.time, 2 * MUD_ONE_MIN))
-            memset(path, 0, sizeof(mud_path));
+            memset(path, 0, sizeof(mud::path));
         return 0;
-    case MUD_PASSIVE:
+    case mud::PASSIVE:
         if (mud_timeout(now, m->last_recv_time, 2 * MUD_ONE_MIN)) {
-            memset(path, 0, sizeof(mud_path));
+            memset(path, 0, sizeof(mud::path));
             return 0;
         }
-    case MUD_UP: break;
+    case mud::UP: break;
     default:     return 0;
     }
     if (path->msg.sent >= MUD_MSG_SENT_MAX) {
@@ -737,48 +737,48 @@ static int mud_path_update(mud* m, mud_path* path, uint64_t now) {
             path->msg.sent = 0;
         } else {
             path->msg.sent = MUD_MSG_SENT_MAX;
-            path->status = MUD_DEGRADED;
+            path->status =mud::DEGRADED;
             return 0;
         }
     }
     if (!path->mtu.ok) {
-        path->status = MUD_PROBING;
+        path->status = mud::PROBING;
         return 0;
     }
     if (path->tx.loss > path->conf.loss_limit ||
         path->rx.loss > path->conf.loss_limit) {
-        path->status = MUD_LOSSY;
+        path->status = mud::LOSSY;
         return 0;
     }
-    if (path->conf.state == MUD_PASSIVE &&
+    if (path->conf.state == mud::PASSIVE &&
         mud_timeout(m->last_recv_time, path->rx.time,
                     MUD_MSG_SENT_MAX * path->conf.beat)) {
-        path->status = MUD_WAITING;
+        path->status = mud::WAITING;
         return 0;
     }
     if (path->conf.pref > m->pref) {
-        path->status = MUD_READY;
-    } else if (path->status != MUD_RUNNING) {
-        path->status = MUD_RUNNING;
+        path->status = mud::READY;
+    } else if (path->status != mud::RUNNING) {
+        path->status = mud::RUNNING;
         path->idle = now;
     }
     return 1;
 }
 
-static uint64_t mud_path_track(mud* m, mud_path* path, uint64_t now) {
-    if (path->conf.state != MUD_UP)
+static uint64_t mud_path_track(mud::mud* m, mud::path* path, uint64_t now) {
+    if (path->conf.state != mud::UP)
         return now;
 
     uint64_t timeout = path->conf.beat;
 
     switch (path->status) {
-        case MUD_RUNNING:
+        case mud::RUNNING:
             if (mud_timeout(now, path->idle, MUD_ONE_SEC))
                 timeout = m->conf.keepalive;
             break;
-        case MUD_DEGRADED:
-        case MUD_LOSSY:
-        case MUD_PROBING:
+        case mud::DEGRADED:
+        case mud::LOSSY:
+        case mud::PROBING:
             break;
         default:
             return now;
@@ -792,7 +792,7 @@ static uint64_t mud_path_track(mud* m, mud_path* path, uint64_t now) {
     return now;
 }
 
-static void mud_update_window(mud* m, const uint64_t now) {
+static void mud_update_window(mud::mud* m, const uint64_t now) {
     uint64_t elapsed = MUD_TIME_MASK(now - m->window_time);
 
     if (elapsed > MUD_ONE_MSEC) {
@@ -805,7 +805,7 @@ static void mud_update_window(mud* m, const uint64_t now) {
         m->window = window_max;
 }
 
-int mud_update(mud* m) {
+int mud::mud_update(mud* m) {
     unsigned count = 0;
     unsigned pref = 255;
     unsigned next_pref = 255;
@@ -817,14 +817,14 @@ int mud_update(mud* m) {
         now = mud_now(m);
 
     for (unsigned i = 0; i < m->capacity; i++) {
-        mud_path* path = &m->paths[i];
+        ::mud::path* path = &m->paths[i];
 
         if (mud_path_update(m, path, now)) {
             if (next_pref > path->conf.pref && path->conf.pref > m->pref)
                 next_pref = path->conf.pref;
             if (pref > path->conf.pref)
                 pref = path->conf.pref;
-            if (path->status == MUD_RUNNING)
+            if (path->status == RUNNING)
                 rate += path->tx.rate;
         }
         if (path->mtu.ok) {
@@ -840,12 +840,12 @@ int mud_update(mud* m) {
         m->pref = next_pref;
 
         for (unsigned i = 0; i < m->capacity; i++) {
-            mud_path* path = &m->paths[i];
+            ::mud::path* path = &m->paths[i];
 
             if (!mud_path_update(m, path, now))
                 continue;
 
-            if (path->status == MUD_RUNNING)
+            if (path->status == RUNNING)
                 rate += path->tx.rate;
         }
     }
@@ -860,18 +860,18 @@ int mud_update(mud* m) {
     return m->window < 1500;
 }
 
-int mud_set_path(mud* m, mud_path_conf *conf) {
-    if (conf->state < MUD_EMPTY || conf->state >= MUD_LAST) {
+int mud::mud_set_path(mud* m, path_conf *conf) {
+    if (conf->state < EMPTY || conf->state >= LAST) {
         errno = EINVAL;
         return -1;
     }
-    mud_path* path = mud_get_path(m, &conf->local,
+    ::mud::path* path = mud_get_path(m, &conf->local,
                                               &conf->remote,
                                               conf->state);
     if (!path)
         return -1;
 
-    mud_path_conf c = path->conf;
+    path_conf c = path->conf;
 
     if (conf->state)       c.state       = conf->state;
     if (conf->pref)        c.pref        = conf->pref >> 1;
@@ -885,7 +885,7 @@ int mud_set_path(mud* m, mud_path_conf *conf) {
     return 0;
 }
 
-static int mud_send_path(mud* m, mud_path* path, uint64_t now, void *data, size_t size, int flags) {
+static int mud_send_path(mud::mud* m, mud::path* path, uint64_t now, void *data, size_t size, int flags) {
     if (!size || !path)
         return 0;
 
@@ -945,13 +945,13 @@ static int mud_send_path(mud* m, mud_path* path, uint64_t now, void *data, size_
     return (int)ret;
 }
 
-static int mud_send_msg(mud* m, mud_path* path, uint64_t now, uint64_t sent_time, uint64_t fw_bytes, uint64_t fw_total, size_t size) {
+static int mud_send_msg(mud::mud* m, mud::path* path, uint64_t now, uint64_t sent_time, uint64_t fw_bytes, uint64_t fw_total, size_t size) {
     unsigned char dst[MUD_PKT_MAX_SIZE];
     unsigned char src[MUD_PKT_MAX_SIZE] = {0};
-    mud_msg *msg = (mud_msg *)src;
+    ::mud::msg *msg = (::mud::msg *)src;
 
-    if (size < MUD_PKT_MIN_SIZE + sizeof(mud_msg))
-        size = MUD_PKT_MIN_SIZE + sizeof(mud_msg);
+    if (size < MUD_PKT_MIN_SIZE + sizeof(::mud::msg))
+        size = MUD_PKT_MIN_SIZE + sizeof(::mud::msg);
 
     mud_store(dst, MUD_MSG_MARK(now), MUD_TIME_SIZE);
     MUD_STORE_MSG(msg->sent_time, sent_time);
@@ -979,7 +979,7 @@ static int mud_send_msg(mud* m, mud_path* path, uint64_t now, uint64_t sent_time
     msg->fixed_rate = path->conf.fixed_rate;
     msg->loss_limit = path->conf.loss_limit;
 
-    const mud_crypto_opt opt = {
+    const mud::crypto_opt opt = {
         .dst = dst,
         .src = src,
         .size = size - MUD_PKT_MIN_SIZE,
@@ -989,7 +989,7 @@ static int mud_send_msg(mud* m, mud_path* path, uint64_t now, uint64_t sent_time
     return mud_send_path(m, path, now, dst, size, sent_time ? MSG_CONFIRM : 0);
 }
 
-int mud_send(mud* m, const void* plain_data, size_t plain_size) {
+int mud::mud_send(mud* m, const void* plain, size_t plain_size) {
     if (!plain_size)
         return 0;
 
@@ -1000,7 +1000,7 @@ int mud_send(mud* m, const void* plain_data, size_t plain_size) {
 
     const uint64_t now = mud_now(m);
     unsigned char encrypted_data[MUD_PKT_MAX_SIZE];
-    const size_t encrypted_size = mud_encrypt(m, now, encrypted_data, sizeof(encrypted_data), (const unsigned char*)plain_data, plain_size);
+    const size_t encrypted_size = mud_encrypt(m, now, encrypted_data, sizeof(encrypted_data), (const unsigned char*)plain, plain_size);
 
     if (!encrypted_size) {
         errno = EMSGSIZE;
@@ -1010,7 +1010,7 @@ int mud_send(mud* m, const void* plain_data, size_t plain_size) {
     uint16_t k;
     memcpy(&k, &encrypted_data[encrypted_size - sizeof(k)], sizeof(k));
 
-    mud_path* path = mud_select_path(m, k);
+    ::mud::path* path = mud_select_path(m, k);
 
     if (!path) {
         errno = EAGAIN;
@@ -1021,12 +1021,12 @@ int mud_send(mud* m, const void* plain_data, size_t plain_size) {
     return mud_send_path(m, path, now, encrypted_data, encrypted_size, 0);
 }
 
-int mud_send_wait(mud* m) {
+int mud_send_wait(mud::mud* m) {
     return m->window < 1500;
 }
 
-static void mud_recv_msg(mud* m, mud_path* path, uint64_t now, uint64_t sent_time, unsigned char* data, size_t size) {
-    mud_msg *msg = (mud_msg *)data;
+static void mud_recv_msg(mud::mud* m, mud::path* path, uint64_t now, uint64_t sent_time, unsigned char* data, size_t size) {
+    mud::msg *msg = (mud::msg *)data;
     const uint64_t tx_time = MUD_LOAD_MSG(msg->sent_time);
 
     mud_sock_from_addr(&path->remote, &msg->addr);
@@ -1042,7 +1042,7 @@ static void mud_recv_msg(mud* m, mud_path* path, uint64_t now, uint64_t sent_tim
 
         if ((tx_time > path->msg.tx.time) && (tx_bytes > path->msg.tx.bytes) &&
             (rx_time > path->msg.rx.time) && (rx_bytes > path->msg.rx.bytes)) {
-            if (path->msg.set && path->status > MUD_PROBING) {
+            if (path->msg.set && path->status > mud::PROBING) {
                 mud_update_rl(m, path, now,
                         MUD_TIME_MASK(tx_time - path->msg.tx.time),
                         tx_bytes - path->msg.tx.bytes,
@@ -1062,7 +1062,7 @@ static void mud_recv_msg(mud* m, mud_path* path, uint64_t now, uint64_t sent_tim
         path->rx.loss = (uint64_t)msg->loss;
         path->msg.sent = 0;
 
-        if (path->conf.state == MUD_PASSIVE)
+        if (path->conf.state == mud::PASSIVE)
             return;
 
         mud_update_mtu(path, size);
@@ -1095,7 +1095,7 @@ static void mud_recv_msg(mud* m, mud_path* path, uint64_t now, uint64_t sent_tim
             m->err.keyx.count++;
             return;
         }
-    } else if (path->conf.state == MUD_UP) {
+    } else if (path->conf.state == mud::UP) {
         m->keyx.use_next = 1;
     }
     mud_send_msg(m, path, now, sent_time,
@@ -1104,8 +1104,8 @@ static void mud_recv_msg(mud* m, mud_path* path, uint64_t now, uint64_t sent_tim
                  size);
 }
 
-int mud_recv(mud* m, void *data, size_t size) {
-    union mud_sockaddr remote;
+int mud::mud_recv(mud* m, void *data, size_t size) {
+    sockaddress remote;
     unsigned char ctrl[MUD_CTRL_SIZE];
     unsigned char packet[MUD_PKT_MAX_SIZE];
 
@@ -1152,14 +1152,14 @@ int mud_recv(mud* m, void *data, size_t size) {
         m->err.decrypt.count++;
         return 0;
     }
-    union mud_sockaddr local;
+    sockaddress local;
 
     if (mud_localaddr(&local, &msg))
         return 0;
 
-    mud_path* path = mud_get_path(m, &local, &remote, MUD_PASSIVE);
+    ::mud::path* path = mud_get_path(m, &local, &remote, PASSIVE);
 
-    if (!path || path->conf.state <= MUD_DOWN)
+    if (!path || path->conf.state <= DOWN)
         return 0;
 
     if (MUD_MSG(sent_time)) {
