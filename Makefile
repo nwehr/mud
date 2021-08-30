@@ -36,4 +36,18 @@ clean:
 	rm -f *.out 
 	rm -rf *.dSYM
 
+test:
+	rm -f test.out
+	$(CC) $(CFLAGS) $(LDLIBS) -L /usr/local/lib -lcpptest-lite -o test.out \
+		aegis256/aegis256.c  \
+		src/mud.cpp \
+		src/addr.cpp \
+		src/sockaddress.cpp \
+		src/stat.cpp \
+		src/path.cpp \
+		src/paths.cpp \
+		src/crypto_keys.cpp \
+		src/crypto_key.cpp \
+		test/test.cpp
+
 .PHONY: test clean

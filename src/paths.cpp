@@ -84,31 +84,3 @@ int mud::paths_set_path(paths* p, path_conf c, uint64_t now) {
     path->conf = conf;
     return 0;
 }
-
-
-// int paths_num_paths(mud::paths* p, mud::path_conf c) {
-//     if (!p) {
-//         errno = EINVAL;
-//         return -1;
-//     }
-//     unsigned count = 0;
-
-//     for (unsigned i = 0; i < p->count; i++) {
-//         ::mud::path* path = &p->path[i];
-
-//         if (sockaddress_cmp_addr(&c.local, &path->conf.local)){
-//             continue;
-//         }
-
-//         if (sockaddress_cmp_addr(&c.remote, &path->conf.remote) || sockaddress_cmp_port(&c.remote, &path->conf.remote)) {
-//             continue;
-//         }
-
-//         if (path->conf.state != mud::EMPTY){
-//             p->path[count++] = *path;
-//         }
-//     }
-
-//     p->count = count;
-//     return 0;
-// }

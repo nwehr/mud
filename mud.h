@@ -284,8 +284,8 @@ namespace mud {
     int mud_update(mud*);
     int mud_send_wait(mud*);
 
-    int mud_recv(mud*, void*, size_t);
-    int mud_send(mud*, const void*, size_t);
+    int mud_recv(mud*, unsigned char*, size_t);
+    int mud_send(mud*, const unsigned char*, size_t);
 
     int mud_get_errors(mud*, errors*);
     int mud_get_fd(mud*);

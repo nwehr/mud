@@ -484,7 +484,7 @@ static int mud_send_msg(mud::mud* m, mud::path* path, uint64_t now, uint64_t sen
     return mud_send_path(m, path, now, dst, size, sent_time ? MSG_CONFIRM : 0);
 }
 
-int mud::mud_send(mud* m, const void* plain, size_t plain_size) {
+int mud::mud_send(mud* m, const unsigned char* plain, size_t plain_size) {
     if (!plain_size)
         return 0;
 
@@ -495,7 +495,7 @@ int mud::mud_send(mud* m, const void* plain, size_t plain_size) {
 
     const uint64_t now = mud_now(m);
     unsigned char encrypted_data[MUD_PKT_MAX_SIZE];
-    const size_t encrypted_size = crypto_keys_encrypt(&m->keys, now, encrypted_data, sizeof(encrypted_data), (const unsigned char*)plain, plain_size);
+    const size_t encrypted_size = crypto_keys_encrypt(&m->keys, now, encrypted_data, sizeof(encrypted_data), plain, plain_size);
 
     if (!encrypted_size) {
         errno = EMSGSIZE;
@@ -599,7 +599,7 @@ static void mud_recv_msg(mud::mud* m, mud::path* path, uint64_t now, uint64_t se
                  size);
 }
 
-int mud::mud_recv(mud* m, void *data, size_t size) {
+int mud::mud_recv(mud* m, unsigned char* data, size_t size) {
     sockaddress remote;
     unsigned char ctrl[MUD_CTRL_SIZE];
     unsigned char packet[MUD_PKT_MAX_SIZE];
@@ -617,13 +617,13 @@ int mud::mud_recv(mud* m, void *data, size_t size) {
         .msg_control = ctrl,
         .msg_controllen = sizeof(ctrl),
     };
-    const ssize_t packet_size = recvmsg(m->fd, &msg, 0);
 
-    if (packet_size == (ssize_t)-1)
+    const size_t packet_size = recvmsg(m->fd, &msg, 0);
+
+    if (packet_size == (size_t)-1)
         return -1;
 
-    if ((msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) ||
-        (packet_size <= (ssize_t)MUD_PKT_MIN_SIZE))
+    if ((msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) || (packet_size <= MUD_PKT_MIN_SIZE))
         return 0;
 
     const uint64_t now = mud_now(m);
@@ -631,8 +631,7 @@ int mud::mud_recv(mud* m, void *data, size_t size) {
 
     sockaddress_unmapv4(&remote);
 
-    if ((MUD_TIME_MASK(now - sent_time) > m->conf.timetolerance) &&
-        (MUD_TIME_MASK(sent_time - now) > m->conf.timetolerance)) {
+    if ((MUD_TIME_MASK(now - sent_time) > m->conf.timetolerance) && (MUD_TIME_MASK(sent_time - now) > m->conf.timetolerance)) {
         m->err.clocksync.addr = remote;
         m->err.clocksync.time = now;
         m->err.clocksync.count++;
@@ -640,8 +639,8 @@ int mud::mud_recv(mud* m, void *data, size_t size) {
     }
     
     const size_t ret = MUD_MSG(sent_time)
-                     ? mud_decrypt_msg(m, (unsigned char*)data, size, packet, (size_t)packet_size)
-                     : crypto_keys_decrypt(&m->keys, (unsigned char*)data, size, packet, (size_t)packet_size);
+                     ? mud_decrypt_msg(m, data, size, packet, packet_size)
+                     : crypto_keys_decrypt(&m->keys, data, size, packet, packet_size);
     
     if (!ret) {
         m->err.decrypt.addr = remote;
@@ -661,13 +660,13 @@ int mud::mud_recv(mud* m, void *data, size_t size) {
         return 0;
 
     if (MUD_MSG(sent_time)) {
-        mud_recv_msg(m, path, now, sent_time, (unsigned char*)data, (size_t)packet_size);
+        mud_recv_msg(m, path, now, sent_time, data, packet_size);
     } else {
         path->idle = now;
     }
     path->rx.total++;
     path->rx.time = now;
-    path->rx.bytes += (size_t)packet_size;
+    path->rx.bytes += packet_size;
 
     m->last_recv_time = now;
 

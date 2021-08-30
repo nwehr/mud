@@ -5,6 +5,7 @@ int mud::addr_is_v6(addr* addr) {
         [10] = 255,
         [11] = 255,
     };
+    
     return memcmp(addr->v6, v4mapped, sizeof(v4mapped));
 }
 
@@ -21,5 +22,6 @@ int mud::addr_from_sockaddress(addr* addr, sockaddress* sock) {
         errno = EAFNOSUPPORT;
         return -1;
     }
+
     return 0;
 }
