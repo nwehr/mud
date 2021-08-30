@@ -49,10 +49,6 @@ int main(int argc, char **argv)
         {
             buf[r] = 0;
             printf("%s\n", buf);
-
-            for (;;) {
-                
-            }
         }
     }
     mud_delete(mud);
